@@ -1,0 +1,10 @@
+Package: publicbenefits
+Title: Calculate United States federal public benefits
+Version: 0.0.0.9000
+Authors@R: 
+    person("Shane", "Orr", , "shane.j.orr@gmail.com", role = c("aut", "cre"))
+Description: Calculates public benefits in North Carolina.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.1.2
