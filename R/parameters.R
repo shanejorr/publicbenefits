@@ -149,7 +149,7 @@ check_state <- function(state_name) {
     datasets::state.abb, "DC", "VI", "GU"
   )
 
-  # make state list and entered data lower case to ensure a state is not recogizend simply because of capitalization
+  # make state list and entered data lower case to ensure a state is not recognized simply because of capitalization
   proper_states <- tolower(proper_states)
   state_name_lower <- tolower(state_name)
 
