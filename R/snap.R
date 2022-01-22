@@ -154,43 +154,125 @@ snap_determine_eligibility <- function(net_income, monthly_earned_income, monthl
   return(eligibility)
 }
 
-#' Maximum SNAP Benefits
+#' Maximum benefit values for SNAP
 #'
-#' Maximum benefit is based on Thrift Food Plan values. 7 CFR 273.10(e)(1)(i)
+#' Maximum SNAP benefits depend on year, region, and household size.
 #'
-#' @return A single number representing the maximum allowable benefits for the given household size.
+#' @param fiscal_year Fiscal year to use to calculate threshold, as numeric. Fiscal year starts Oct. 1.
+#' @param region Region to calculate maximum benefits for. Must be one of :
+#'      'Contiguous US', 'Guam', 'Virgin Islands', 'Hawaii', 'Alaska Urban', 'Alaska Rural 1', 'Alaska Rural 2'.
+#'
 #' @keywords internal
-snap_maximum_benefits <- function(fiscal_year, region, household_size) {
+snap_maximum_benefit_amounts <- function(fiscal_year, region) {
 
   # check parameters
 
   # make sure the year parameter is an available year
-  years <- 2022:2022
-  if (!(year %in% years)) stop(paste0("`year` must be either ", paste0(years, collapse = ", "), "."))
+  fiscal_years <- 2022:2022
+  if (!(fiscal_year %in% fiscal_years)) stop(paste0("`year` must be either ", paste0(fiscal_years, collapse = ", "), "."))
+
+  fiscal_year <- as.character(fiscal_year)
 
   # check geographies
-  required_geographies <- c('Contiguous US', 'Hawaii', 'Alaska')
-  accepted_geograhies <- tolower(required_geographies)
+  required_regions <- c('Contiguous US', 'Guam', 'Virgin Islands', 'Hawaii', 'Alaska Urban', 'Alaska Rural 1', 'Alaska Rural 2')
+  accepted_regions <- tolower(required_regions)
 
-  if (!(geography %in% c(required_geographies, accepted_geograhies))) {
-    stop(paste0("`geography` must be either ", paste0(required_geographies, collapse = ", "), "."))
+  if (!(region %in% c(required_regions, accepted_regions))) {
+    stop(paste0("`region` must be either ", paste0(required_regions, collapse = ", "), "."))
   }
 
-  list(
+  region <- tolower(region)
+
+  snap_maximums <- list(
     # https://fns-prod.azureedge.net/sites/default/files/resource-files/2022-SNAP-COLA-%20Maximum-Allotments.pdf
     '2022' = list(
 
-        'contiguous us' = list(
-          households = c('1' = 250, '2' = 459, '3' = 658, '4' = 835, '5' = 992, '6' = 1190, '7' = 1316, '8' = 1504),
-          additional_person = 188
-        )
+      'contiguous us' = list(
+        households = c('1' = 250, '2' = 459, '3' = 658, '4' = 835, '5' = 992, '6' = 1190, '7' = 1316, '8' = 1504),
+        additional_person = 188
+      ),
 
+      'guam' = list(
+        households = c('1' = 369, '2' = 677, '3' = 969, '4' = 1231, '5' = 1462, '6' = 1754, '7' = 1939, '8' = 2216),
+        additional_person = 277
+      ),
+
+      'virgin islands' = list(
+        households = c('1' = 322, '2' = 590, '3' = 845, '4' = 1074, '5' = 1275, '6' = 1530, '7' = 1691, '8' = 1933),
+        additional_person = 242
+      ),
+
+      'alaska urban' = list(
+        households = c('1' = 322, '2' = 591, '3' = 846, '4' = 1074, '5' = 1276, '6' = 1531, '7' = 1692, '8' = 1934),
+        additional_person = 242
+      ),
+
+      'alaska rural 1' = list(
+        households = c('1' = 411, '2' = 753, '3' = 1079, '4' = 1370, '5' = 1627, '6' = 1952, '7' = 2158, '8' = 2466),
+        additional_person = 308
+      ),
+
+      'alaska rural 2' = list(
+        households = c('1' = 500, '2' = 917, '3' = 1313, '4' = 1667, '5' = 1980, '6' = 2376, '7' = 2626, '8' = 3002),
+        additional_person = 375
+      ),
+
+      'hawaii' = list(
+        households = c('1' = 472, '2' = 865, '3' = 1239, '4' = 1573, '5' = 1868, '6' = 2242, '7' = 2478, '8' = 2832),
+        additional_person = 354
+      )
     )
   )
 
+  snap_maximums[[fiscal_year]][[region]]
+
 }
 
+#' Maximum SNAP Benefits
+#'
+#' Calculates the maximum SNAP benefits for a given year, region, and household size.
+#' Maximum SNAP benefits are based on Thrift Food Plan (TFP) amounts. 7 CFR 273.10(e)(1)(i).
+#'
+#' @param fiscal_year Whole number representing the fiscal year. Fiscal years start Oct. 1st.
+#' @param region Region for calculating max benefits. One of:
+#'      'Contiguous US', 'Guam', 'Virgin Islands', 'Hawaii', 'Alaska Urban', 'Alaska Rural 1', 'Alaska Rural 2'
+#' @household_size Whole number represent household size.
+#'
+#' @section Source:
+#' TFP amounts: \url{https://fns-prod.azureedge.net/sites/default/files/resource-files/2022-SNAP-COLA-%20Maximum-Allotments.pdf}
+#'
+#' @export
+snap_maximum_benefits <- function(fiscal_year, region, household_size) {
 
+
+
+  # ensure household_size is numeric
+  if (!is.numeric(household_size)) {
+    stop("The `household_size` column must be numeric.", call. = FALSE)
+  } else if (!all(household_size %% 1 == 0)) {
+    # make sure no numbers are decimals
+    stop("All `household_size` values must be integers. They cannot be decimals.", call. = FALSE)
+  } else {
+    # convert to character so we can look up numbers in named list
+    household_size_character <- as.character(household_size)
+  }
+
+  # list with maximum benefits per household size and additional benefit value per person
+  max_benefits_list <- snap_maximum_benefit_amounts(fiscal_year, region)
+
+  if (household_size %in% 1:8) {
+    # max benefit for households with 8 or fewer people
+    max_snap_benefit <- max_benefits_list[['households']][[household_size_character]]
+  } else {
+    # max benefit for households with more than 8 people
+    household_eight_benefit <- max_benefits_list[['households']][['8']]
+    additional_person_benefit <- max_benefits_list[['additional_person']]
+    num_beyond_eight <- household_size - 8
+    max_snap_benefit <- household_eight_benefit + (additional_person_benefit * num_beyond_eight)
+  }
+
+  return(max_snap_benefit)
+}
 
 #' SNAP income deductions
 #'
