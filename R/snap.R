@@ -21,7 +21,7 @@
 #' FNS Broad-Based Categorical Eligibility Chart: \url{https://fns-prod.azureedge.net/sites/default/files/resource-files/BBCE%20States%20Chart%20(July%202021).pdf}
 #'
 #' @export
-state_gross_income_limits <- function(year, state) {
+snap_state_gross_income_limits <- function(year, state) {
 
   # check parameters
 
@@ -64,8 +64,10 @@ state_gross_income_limits <- function(year, state) {
 
 #' Calculate net income prior to shelter deduction
 #'
+#' Overall net income calculations are in 7 CFR 273.10(e)(1)
+#'
 #' @keywords internal
-net_income_prior_shelter <- function(
+snap_net_income_prior_shelter <- function(
   year, net_income_limit, monthly_earned_income, monthly_unearned_income, elderly_disabled_household_member,
   excess_medical_deduction, dependent_care_deduction, child_support_deduction
   ) {
@@ -73,16 +75,16 @@ net_income_prior_shelter <- function(
   year <- as.character(year)
 
   # standard deduction is a percent of the net income threshold (7 CFR 273.9(d)(1))
-  std_deduction <- net_income_limit * income_deduction(year, 'standard')
+  std_deduction <- net_income_limit * snap_income_deduction(year, 'standard')
 
   # Earned Income Deduction is a percent of earned income (7 CFR 273.9(d)(2))
-  earned_income_deduction <- monthly_earned_income * income_deduction(year, 'earned_income')
+  earned_income_deduction <- monthly_earned_income * snap_income_deduction(year, 'earned_income')
 
   # Excess medical deduction is medical costs exceeding a threshold (7 CFR 273.9(d)(3))
   # only applies to elderly or disabled
   if (elderly_disabled_household_member) {
 
-    excess_medical_deduction <- medical_expenses - income_deduction(year, 'excess_medical')
+    excess_medical_deduction <- medical_expenses - snap_income_deduction(year, 'excess_medical')
     excess_medical_deduction <- if (excess_medical_deduction < 0) 0 else excess_medical_deduction
 
   } else {
@@ -90,14 +92,105 @@ net_income_prior_shelter <- function(
   }
 
   # total gross income
-  net_income_before_shelter <- monthly_earned_income + monthly_unearned_income
+  total_gross_income <- monthly_earned_income + monthly_unearned_income
 
   # remove all deductions except shelter deduction
-  net_income_before_shelter <- net_income_before_shelter - std_deduction - earned_income_deduction - excess_medical_deduction - dependent_care_deduction - child_support_deduction
+  net_income_before_shelter <- total_gross_income - std_deduction - earned_income_deduction - excess_medical_deduction - dependent_care_deduction - child_support_deduction
 
   return(net_income_before_shelter)
 
 }
+
+#' Calculate net income
+#'
+#' Net income is calculated by taking earned and unearned income, subtracting deductions, and then
+#' calculating and subtracting the excess shelter deduction. Steps to calculate net income are in 7 CFR 273.10(e)(1)(i).
+#'
+#' @return Net income value.
+#' @keywords internal
+snap_calculate_net_income <- function(net_income_before_shelter, shelter_expenses, use_homeless_shelter_deduction, year) {
+
+  # shelter deduction
+  # deduction is expenses in excess of 50% of shelter costs ((7 CFR 273.9(d)(6)(ii)))
+  amount_to_subtract_from_shelter_expense <- net_income_before_shelter * snap_income_deduction(year, 'excess_shelter')
+
+  excess_shelter_deduction <- shelter_expenses - amount_to_subtract_from_shelter_expense
+
+  excess_shelter_deduction <- ifelse(excess_shelter_deduction < 0, 0, excess_shelter_deduction)
+
+  # use the homeless shelter deduction instead of excess shelter if specified
+  excess_shelter_deduction <- ifelse(use_homeless_shelter_deduction , snap_income_deduction(year, 'homeless_shelter'), excess_shelter_deduction)
+
+  # subtract excess shelter costs from net income before shelter deduction to arrive at net income
+  # 7 CFR 273.10(e)(1)(i)(I)
+  net_income <- net_income_before_shelter - excess_shelter_deduction
+
+  return(net_income)
+
+}
+
+#' Calculate Eligibility
+#'
+#' @section Eligibility Criteria:
+#' Disables or elderly compare their net income with net income limit (7 CFR 273.10(e)(2)(i)(A)).
+#' Non-elderly compare their net and gross incomes (7 CFR 273.10(e)(2)(i)(A)). to the limits.
+#'
+#' @return Boolean representing whether household is eligible for benefits
+#' @keywords internal
+# total gross income is earned and unearned income (7 CFR 273.10(e)(1)(i)(A))
+snap_determine_eligibility <- function(net_income, monthly_earned_income, monthly_unearned_income, net_income_limit, gross_income_limit, elderly_disabled_household_member) {
+
+  # total gross income is earned and unearned income (7 CFR 273.10(e)(1)(i)(A))
+  total_gross_income <- monthly_earned_income + monthly_unearned_income
+
+  # check whether net and gross incomes are under the income limits
+  meet_net_income <- net_income < net_income_limit
+  meet_gross_income <- total_gross_income < gross_income_limit
+
+  eligibility <- ifelse(
+    elderly_disabled_household_member, meet_net_income, meet_net_income & meet_gross_income
+  )
+
+  return(eligibility)
+}
+
+#' Maximum SNAP Benefits
+#'
+#' Maximum benefit is based on Thrift Food Plan values. 7 CFR 273.10(e)(1)(i)
+#'
+#' @return A single number representing the maximum allowable benefits for the given household size.
+#' @keywords internal
+snap_maximum_benefits <- function(fiscal_year, region, household_size) {
+
+  # check parameters
+
+  # make sure the year parameter is an available year
+  years <- 2022:2022
+  if (!(year %in% years)) stop(paste0("`year` must be either ", paste0(years, collapse = ", "), "."))
+
+  # check geographies
+  required_geographies <- c('Contiguous US', 'Hawaii', 'Alaska')
+  accepted_geograhies <- tolower(required_geographies)
+
+  if (!(geography %in% c(required_geographies, accepted_geograhies))) {
+    stop(paste0("`geography` must be either ", paste0(required_geographies, collapse = ", "), "."))
+  }
+
+  list(
+    # https://fns-prod.azureedge.net/sites/default/files/resource-files/2022-SNAP-COLA-%20Maximum-Allotments.pdf
+    '2022' = list(
+
+        'contiguous us' = list(
+          households = c('1' = 250, '2' = 459, '3' = 658, '4' = 835, '5' = 992, '6' = 1190, '7' = 1316, '8' = 1504),
+          additional_person = 188
+        )
+
+    )
+  )
+
+}
+
+
 
 #' SNAP income deductions
 #'
@@ -109,7 +202,9 @@ net_income_prior_shelter <- function(
 #'
 #' @return A single number representing a value used to compute the income deduction.
 #' @keywords internal
-income_deduction <- function(year, deduction) {
+snap_income_deduction <- function(year, deduction) {
+
+  year <- as.character(year)
 
   deduction_value <- list(
   # standard deduction is a percentage of the net income eligibility value. 7 CFR 273.9(d)(1)
@@ -134,7 +229,7 @@ income_deduction <- function(year, deduction) {
     )
   )
 
-  deduction_value[[deduction]][year]
+  return(unname(deduction_value[[deduction]][year]))
 
 }
 
