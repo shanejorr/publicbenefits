@@ -1,7 +1,7 @@
 devtools::load_all()
 
 # parameters -------------------------------
-year <- 2021
+year <- 2022
 
 gross_income_limit <- 2
 
@@ -32,9 +32,21 @@ use_homeless_shelter_deduction <- FALSE
 # expenses cannot exceed area limit, unless elderly or disabeled person is in home
 shelter_expenses <- 600
 
+# region is for both poverty limits and maximum snap benefits
+tfp_region <- 'Contiguous US'
+
 # function ----------------------------
 
-net_income_limit <- federal_poverty_guidelines(year, 'contiguous us', household_size) / 12
+# check parameters
+# snap_check_parameters(.data, 'year', 'household_size')
+
+# TFP regions have 3 regions for Alaska, while poverty guideline regions only have one AK region
+# if the TFP region is one in alaska, change to simply alaska
+poverty_guideline_region <- ifelse(grepl('^[A|a]laska', tfp_region), 'Alaska', tfp_region)
+
+net_income_limit <- federal_poverty_guidelines(year, poverty_guideline_region, household_size) / 12
+
+rm(poverty_guideline_region)
 
 gross_income_limit <- net_income_limit * gross_income_limit
 
@@ -50,15 +62,18 @@ net_income_before_shelter <- snap_net_income_prior_shelter(
 
 net_income <- snap_calculate_net_income(net_income_before_shelter, shelter_expenses, use_homeless_shelter_deduction, year)
 
+rm(net_income_before_shelter)
+
 # determine eligibility
 snap_eligibility <- snap_determine_eligibility(
   net_income, monthly_earned_income, monthly_unearned_income, net_income_limit, gross_income_limit, elderly_disabled_household_member
 )
 
 # calculate benefit level
-# (A) Except as provided in paragraphs (a)(1), (e)(2)(iii) and (e)(2)(vi) of this section,
-# the household's monthly allotment shall be equal to the maximum SNAP allotment for the
-# household's size reduced by 30 percent of the household's net monthly income as calculated in
-# paragraph (e)(1) of this section.
 
-# Maximum benefit is based on Thrift Food Plan values. 7 CFR 273.10(e)(1)(i)
+# amount is zero if household is not eligible
+# so, only calculate SNAP amount for eligible households
+snap_benefit_amount <- ifelse(snap_eligibility, snap_benefit_amount(net_income, year, tfp_region, household_size), 0)
+
+return(snap_benefit_amount)
+

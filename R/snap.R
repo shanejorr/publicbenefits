@@ -1,3 +1,78 @@
+#' Calcualte SNAP benefit amounts for households.]
+#'
+#' For SNAP benefits, states can elect broad-based categorical eligibility. With this election, states
+#' can increase the gross income limit from 130% of the poverty guideline to a higher value.
+#' This function returns a state's gross income limit under broad-based categorical eligibility.
+#' An NA value is returned for states that have not elected broad-based
+#' categorical eligibility.
+#'
+#' @param year Year to use to calculate threshold, as numeric. Data for 2021 is available.
+#' @param state Two letter abbreviation of the state, capitalized. Use 'DC' for Washington, DC;
+#'      'GU' for Guam, and 'VI' for the US Virgin Islands.
+#'
+#' @return A single number representing the state's gross income limit, based on the percentage of the
+#'      federal poverty guidelines. For example, 2 represents 200% of the federal poverty guidelines,
+#'      while 1.85 represents 185% of the federal poverty guidelines.
+#'
+#' @examples
+#' snap_state_gross_income_limits(2021, 'NC')
+#'
+#' @section Source:
+#' FNS Broad-Based Categorical Eligibility Chart: \url{https://fns-prod.azureedge.net/sites/default/files/resource-files/BBCE%20States%20Chart%20(July%202021).pdf}
+#'
+#' @export
+snap_benefit_amount <- function(
+  .data, year, state_gross_income_limit, household_size, tfp_region,
+  custom_gross_income_limit = NULL, custom_net_income_limit = NULL, )
+  {
+
+  # check parameters
+  snap_check_parameters(.data, 'year', 'household_size')
+
+  # gross income limits depends on the state because some states elect categorical eligibility
+  # and this raises the gross income limit. 7 CFR § 273.9(a)
+  gross_income_limit
+
+
+  # TFP regions have 3 regions for Alaska, while poverty guideline regions only have one AK region
+  # if the TFP region is one in alaska, change to simply alaska
+  poverty_guideline_region <- ifelse(grepl('^[A|a]laska', tfp_region), 'Alaska', tfp_region)
+
+  net_income_limit <- federal_poverty_guidelines(year, poverty_guideline_region, household_size) / 12
+
+  rm(poverty_guideline_region)
+
+  gross_income_limit <- net_income_limit * gross_income_limit
+
+  # calculate net income
+
+  # you have to calculate net income prior to the shelter deduction before calculating the shelter deduction
+  net_income_before_shelter <- snap_net_income_prior_shelter(
+    year = year, net_income_limit = net_income_limit, monthly_earned_income = monthly_earned_income,
+    monthly_unearned_income = monthly_unearned_income, elderly_disabled_household_member = elderly_disabled_household_member,
+    excess_medical_deduction = medical_expenses, dependent_care_deduction = dependent_care_deduction,
+    child_support_deduction = child_support_deduction
+  )
+
+  net_income <- snap_calculate_net_income(net_income_before_shelter, shelter_expenses, use_homeless_shelter_deduction, year)
+
+  rm(net_income_before_shelter)
+
+  # determine eligibility
+  snap_eligibility <- snap_determine_eligibility(
+    net_income, monthly_earned_income, monthly_unearned_income, net_income_limit, gross_income_limit, elderly_disabled_household_member
+  )
+
+  # calculate benefit level
+
+  # amount is zero if household is not eligible
+  # so, only calculate SNAP amount for eligible households
+  snap_benefit_amount <- ifelse(snap_eligibility, snap_benefit_amount(net_income, year, tfp_region, household_size), 0)
+
+  return(snap_benefit_amount)
+
+}
+
 #' State gross income limits for SNAP
 #'
 #' For SNAP benefits, states can elect broad-based categorical eligibility. With this election, states
@@ -15,19 +90,13 @@
 #'      while 1.85 represents 185% of the federal poverty guidelines.
 #'
 #' @examples
-#' state_gross_income_limits(2021, 'NC')
+#' snap_state_gross_income_limits(2021, 'NC')
 #'
 #' @section Source:
 #' FNS Broad-Based Categorical Eligibility Chart: \url{https://fns-prod.azureedge.net/sites/default/files/resource-files/BBCE%20States%20Chart%20(July%202021).pdf}
 #'
 #' @export
 snap_state_gross_income_limits <- function(year, state) {
-
-  # check parameters
-
-  # make sure the year parameter is an available year
-  years <- 2021
-  if (!(year %in% years)) stop(paste0("`year` must be either ", paste0(years, collapse = ", "), "."))
 
   check_state(state)
 
@@ -36,13 +105,13 @@ snap_state_gross_income_limits <- function(year, state) {
   state <- toupper(state)
 
   state_gross_income_limits <- list(
-    '2021' = list(
+    '2022' = list(
       AL = 1.3, AZ = 1.85, CA = 2, CO = 2, CT = 1.85, DE = 2, DC = 2, FL = 200,
       GA = 1.3, GU = 1.65, HI = 2, ID = 1.3, IL = 1.65, IN = 1.3, IA = 1.6,
       KY = 2, LA = 1.3, ME = 1.85, MA = 2, MI = 2, MN = 1.65, MT = 2, NE = 1.3,
       NV = 2, NJ = 1.85, NM = 1.65, NC = 2, ND = 2, OH = 1.3, OK = 1.3, OR = 1.85,
       PA = 1.6, RI = 1.85, SC = 1.3, TX = 1.65, VI = 1.85, VA = 2, WA = 2, WV = 2,
-      WI = 2
+      WI = 2, Federal = 1.3
     )
   )
 
@@ -137,7 +206,6 @@ snap_calculate_net_income <- function(net_income_before_shelter, shelter_expense
 #'
 #' @return Boolean representing whether household is eligible for benefits
 #' @keywords internal
-# total gross income is earned and unearned income (7 CFR 273.10(e)(1)(i)(A))
 snap_determine_eligibility <- function(net_income, monthly_earned_income, monthly_unearned_income, net_income_limit, gross_income_limit, elderly_disabled_household_member) {
 
   # total gross income is earned and unearned income (7 CFR 273.10(e)(1)(i)(A))
@@ -158,20 +226,14 @@ snap_determine_eligibility <- function(net_income, monthly_earned_income, monthl
 #'
 #' Maximum SNAP benefits depend on year, region, and household size.
 #'
-#' @param fiscal_year Fiscal year to use to calculate threshold, as numeric. Fiscal year starts Oct. 1.
+#' @param year Fiscal year to use to calculate threshold, as numeric. Fiscal year starts Oct. 1.
 #' @param region Region to calculate maximum benefits for. Must be one of :
 #'      'Contiguous US', 'Guam', 'Virgin Islands', 'Hawaii', 'Alaska Urban', 'Alaska Rural 1', 'Alaska Rural 2'.
 #'
 #' @keywords internal
-snap_maximum_benefit_amounts <- function(fiscal_year, region) {
+snap_maximum_benefit_amounts <- function(year, region) {
 
-  # check parameters
-
-  # make sure the year parameter is an available year
-  fiscal_years <- 2022:2022
-  if (!(fiscal_year %in% fiscal_years)) stop(paste0("`year` must be either ", paste0(fiscal_years, collapse = ", "), "."))
-
-  fiscal_year <- as.character(fiscal_year)
+  year <- as.character(year)
 
   # check geographies
   required_regions <- c('Contiguous US', 'Guam', 'Virgin Islands', 'Hawaii', 'Alaska Urban', 'Alaska Rural 1', 'Alaska Rural 2')
@@ -224,7 +286,7 @@ snap_maximum_benefit_amounts <- function(fiscal_year, region) {
     )
   )
 
-  snap_maximums[[fiscal_year]][[region]]
+  snap_maximums[[year]][[region]]
 
 }
 
@@ -233,32 +295,22 @@ snap_maximum_benefit_amounts <- function(fiscal_year, region) {
 #' Calculates the maximum SNAP benefits for a given year, region, and household size.
 #' Maximum SNAP benefits are based on Thrift Food Plan (TFP) amounts. 7 CFR 273.10(e)(1)(i).
 #'
-#' @param fiscal_year Whole number representing the fiscal year. Fiscal years start Oct. 1st.
+#' @param year Whole number representing the fiscal year. Fiscal years start Oct. 1st.
 #' @param region Region for calculating max benefits. One of:
 #'      'Contiguous US', 'Guam', 'Virgin Islands', 'Hawaii', 'Alaska Urban', 'Alaska Rural 1', 'Alaska Rural 2'
-#' @household_size Whole number represent household size.
+#' @param household_size Whole number represent household size.
 #'
 #' @section Source:
 #' TFP amounts: \url{https://fns-prod.azureedge.net/sites/default/files/resource-files/2022-SNAP-COLA-%20Maximum-Allotments.pdf}
 #'
 #' @export
-snap_maximum_benefits <- function(fiscal_year, region, household_size) {
+snap_maximum_benefits <- function(year, region, household_size) {
 
-
-
-  # ensure household_size is numeric
-  if (!is.numeric(household_size)) {
-    stop("The `household_size` column must be numeric.", call. = FALSE)
-  } else if (!all(household_size %% 1 == 0)) {
-    # make sure no numbers are decimals
-    stop("All `household_size` values must be integers. They cannot be decimals.", call. = FALSE)
-  } else {
-    # convert to character so we can look up numbers in named list
-    household_size_character <- as.character(household_size)
-  }
+  # convert to character so we can look up numbers in named list
+  household_size_character <- as.character(household_size)
 
   # list with maximum benefits per household size and additional benefit value per person
-  max_benefits_list <- snap_maximum_benefit_amounts(fiscal_year, region)
+  max_benefits_list <- snap_maximum_benefit_amounts(year, region)
 
   if (household_size %in% 1:8) {
     # max benefit for households with 8 or fewer people
@@ -272,6 +324,24 @@ snap_maximum_benefits <- function(fiscal_year, region, household_size) {
   }
 
   return(max_snap_benefit)
+}
+
+#' SNAP benefit amount
+#'
+#' Calculate the amount of benefits for SNAP households. Return 0 if household is not eligible for benefits.
+#'      Except as provided in paragraphs (a)(1), (e)(2)(iii) and (e)(2)(vi) of this section,
+#'      the household's monthly allotment shall be equal to the maximum SNAP allotment for the
+#'      household's size reduced by 30 percent of the household's net monthly income as calculated in
+#'      paragraph (e)(1) of this section. 7 CFR 273.10(e)(2)(ii)(A)
+#'
+#' @keywords internal
+snap_benefit_amount <- function(net_income, year, tfp_region, household_size) {
+
+  # maximum benefit amount household is eligible for
+  maximum_snap_benefit <- snap_maximum_benefits(year, tfp_region, household_size)
+
+  return(maximum_snap_benefit - (net_income * .3))
+
 }
 
 #' SNAP income deductions
@@ -291,27 +361,73 @@ snap_income_deduction <- function(year, deduction) {
   deduction_value <- list(
   # standard deduction is a percentage of the net income eligibility value. 7 CFR 273.9(d)(1)
     'standard' = c(
-      '2021' = .0831
+      '2022' = .0831
     ),
     # percentage of earned income (7 CFR 273.9(d)(2))
     'earned_income' = c(
-      '2021' = .2
+      '2022' = .2
     ),
     # medical expenses exceeding a threshold (7 CFR 273.9(d)(3))
     'excess_medical' = c(
-      '2021' = 35
+      '2022' = 35
     ),
     # homeless shelter deduction is a set amount each year (7 CFR 273.9(d)(6)(i))
     'homeless_shelter' = c(
-      '2021' = 143
+      '2022' = 143
     ),
     # excess shelter deduction is a percentage of net income, after deductions (7 CFR 273.9(d)(6)(ii))
     'excess_shelter' = c(
-      '2021' = .5
+      '2022' = .5
     )
   )
 
-  return(unname(deduction_value[[deduction]][year]))
+  deduction_value <- unname(deduction_value[[deduction]][year])
+
+  if (is.na(deduction)) stop(paste0("Could not calculate ", deduction, " please check that the year is correct."), call. = FALSE)
+
+  return(deduction_value)
 
 }
 
+#' Check parameters for SNAP function
+#'
+#' @keywords internal
+snap_check_parameters <- function(.data) {
+
+  col_names <- colnames(.data)
+
+  required_cols <- c('year', 'household_size')
+
+  # make sure all required columns are present
+  missing_cols <- setdiff(required_cols, col_names)
+  if (!length(missing_cols) == 0) {
+    stop(paste0("You are missing the following required columns from .data: ", paste0(missing_cols, collapse = ", ")))
+  }
+
+  # year
+  if (!is.numeric(.data[[year]])) stop("`year` must be numeric.", call. = FALSE)
+
+  first_year <- 2022
+  if (any(.data[[year]] < first_year)) stop(paste0(first_year, " is the first year available. You have a year earlier in your data."), call. = FALSE)
+
+  # household_size
+  if (!is.numeric(.data[[household_size]])) stop("The `household_size` column must be numeric.", call. = FALSE)
+  if (any(.data[[household_size]] %% 1 != 0)) stop("All `household_size` values must be integers. They cannot be decimals.", call. = FALSE)
+  if (any(is.na(.data[[household_size]]))) stop("You have NA `household_size` values. All rows must have a household size.", call. = FALSE)
+
+  # income limits
+  gross_income_cols <- c('state_gross_income_limits', 'custom_gross_income_limit')
+  # cannot have state and custom gross income limits
+  if (length(intersect(col_names, gross_income_cols)) == 2) {
+    stop('Cannot have columns for both `state_gross_income_limits` and `custom_gross_income_limit`. You can only use one of these columns', call. = FALSE)
+  }
+
+  # msut have at least one gross income column
+  if (length(intersect(col_names, gross_income_cols)) == 0) {
+    stop('`.data` must contain columns for either `state_gross_income_limits` or `custom_gross_income_limit`.', call. = FALSE)
+  }
+
+
+
+  return(NULL)
+}

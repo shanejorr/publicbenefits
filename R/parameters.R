@@ -35,14 +35,14 @@ federal_poverty_guidelines <- function(year, geography, household_size) {
   # check parameters
 
   # make sure the year parameter is an available year
-  years <- 2017:2021
+  years <- 2017:2022
   if (!(year %in% years)) stop(paste0("`year` must be either ", paste0(years, collapse = ", "), "."))
 
   # check geographies
   required_geographies <- c('Contiguous US', 'Hawaii', 'Alaska')
-  accepted_geograhies <- tolower(required_geographies)
+  geography <- tolower(geography)
 
-  if (!(geography %in% c(required_geographies, accepted_geograhies))) {
+  if (!(geography %in% tolower(required_geographies))) {
     stop(paste0("`geography` must be either ", paste0(required_geographies, collapse = ", "), "."))
   }
 
@@ -53,6 +53,21 @@ federal_poverty_guidelines <- function(year, geography, household_size) {
   year <- as.character(year)
 
   guideline_amounts <- list(
+
+    '2022' = list(
+      'contiguous us' = list(
+        base = 13590,
+        additional_amount = 4720
+      ),
+      'hawaii' = list(
+        base = 15630,
+        additional_amount = 5430
+      ),
+      'alaska' = list(
+        base = 16990,
+        additional_amount = 5900
+      )
+    ),
 
     '2021' = list(
       'contiguous us' = list(
@@ -145,9 +160,7 @@ federal_poverty_guidelines <- function(year, geography, household_size) {
 #' @keywords internal
 check_state <- function(state_name) {
 
-  proper_states <- c(
-    datasets::state.abb, "DC", "VI", "GU"
-  )
+  proper_states <- c(datasets::state.abb, "DC", "VI", "GU", "Federal")
 
   # make state list and entered data lower case to ensure a state is not recognized simply because of capitalization
   proper_states <- tolower(proper_states)
