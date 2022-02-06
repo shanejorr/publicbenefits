@@ -160,17 +160,56 @@ federal_poverty_guidelines <- function(year, geography, household_size) {
 #' @keywords internal
 check_state <- function(state_name) {
 
-  proper_states <- c(datasets::state.abb, "DC", "VI", "GU", "Federal")
+  proper_states <- states_and_territories()
 
   # make state list and entered data lower case to ensure a state is not recognized simply because of capitalization
   proper_states <- tolower(proper_states)
   state_name_lower <- tolower(state_name)
 
   # state should either be the two letter abbreviation or full name
-  if (!state_name_lower %in% proper_states) {
-    stop("One of your state names is unrecognizable. Names should be the two letter abbreviation.", call. = FALSE)
+  wrong_states <- setdiff(state_name_lower, proper_states)
+
+  if (length(wrong_states) > 0) {
+    stop(paste0(
+      "State names should be the two letter abbreviation. The following values are incorrect: ",
+      paste0(wrong_states, collapse = ", ")
+      ),
+      call. = FALSE
+    )
   }
 
   return(NULL)
 
+}
+
+#' States and territory abbreviations
+#'
+#' Abbreviations for states and territories used for public benefits.
+#'
+#' @keywords internal
+states_and_territories <- function() {
+
+  c(datasets::state.abb, "DC", "VI", "GU", "Federal")
+
+}
+
+#' Map states to poverty and TFP regions
+#'
+#' @keywords internal
+map_states_regions <- function(state) {
+
+  # pull out all state and add DC and federal
+  contiguous <- c(c(states_and_territories()[1:50], 'Federal', 'DC'))
+
+  # remove AK and HI from contiguous
+  contiguous <- contiguous[!contiguous %in% c('HI', 'AK')]
+
+  dplyr::case_when(
+    state %in% contiguous ~ 'Contiguous US',
+    state == 'AK' ~ 'Alaska',
+    state == 'HI' ~ 'Hawaii',
+    state == 'GU' ~ 'Guam',
+    state == 'VI' ~ 'Virgin Island',
+    TRUE ~ stop("Could not find region. Please ensure your state values are correct. They must be two letter abbreviations or 'Federal'")
+  )
 }

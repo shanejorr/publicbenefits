@@ -1,42 +1,32 @@
-#' Calcualte SNAP benefit amounts for households.]
+#' SNAP benefit amounts for households.
 #'
-#' For SNAP benefits, states can elect broad-based categorical eligibility. With this election, states
-#' can increase the gross income limit from 130% of the poverty guideline to a higher value.
-#' This function returns a state's gross income limit under broad-based categorical eligibility.
-#' An NA value is returned for states that have not elected broad-based
-#' categorical eligibility.
-#'
-#' @param year Year to use to calculate threshold, as numeric. Data for 2021 is available.
-#' @param state Two letter abbreviation of the state, capitalized. Use 'DC' for Washington, DC;
-#'      'GU' for Guam, and 'VI' for the US Virgin Islands.
-#'
-#' @return A single number representing the state's gross income limit, based on the percentage of the
-#'      federal poverty guidelines. For example, 2 represents 200% of the federal poverty guidelines,
-#'      while 1.85 represents 185% of the federal poverty guidelines.
-#'
-#' @examples
-#' snap_state_gross_income_limits(2021, 'NC')
-#'
-#' @section Source:
-#' FNS Broad-Based Categorical Eligibility Chart: \url{https://fns-prod.azureedge.net/sites/default/files/resource-files/BBCE%20States%20Chart%20(July%202021).pdf}
+#' Calculates the total SNAP benefits for households.
 #'
 #' @export
-snap_benefit_amount <- function(
-  .data, year, state_gross_income_limit, household_size, tfp_region,
-  custom_gross_income_limit = NULL, custom_net_income_limit = NULL, )
-  {
+snap_benefits <- function(
+  .data, year, household_size, state_gross_income_limit = NULL, custom_gross_income_limit = NULL, custom_net_income_limit = NULL,
+  tfp_region = NULL, federal_poverty_guideleines_region = "Contiguous US"
+  ) {
 
   # check parameters
   snap_check_parameters(.data, 'year', 'household_size')
 
+  # users can either define their own gross income limit or specify a state and use it
   # gross income limits depends on the state because some states elect categorical eligibility
   # and this raises the gross income limit. 7 CFR § 273.9(a)
-  gross_income_limit
+  if (!is.null(state_gross_income_limit)) {
+    gross_income_limit <- snap_state_gross_income_limits(year, state_gross_income_limit)
+  } else if (!is.null(custom_gross_income_limit)) {
+    gross_income_limit <- custom_gross_income_limit
+  } else {
+    stop("`state_gross_income_limit` and `custom_gross_income_limit` cannot both be NULL.")
+  }
 
+  tfp_region <- tfp_region_rules(tfp_region, state_gross_income_limit)
 
-  # TFP regions have 3 regions for Alaska, while poverty guideline regions only have one AK region
-  # if the TFP region is one in alaska, change to simply alaska
-  poverty_guideline_region <- ifelse(grepl('^[A|a]laska', tfp_region), 'Alaska', tfp_region)
+  # calculate federal poverty region based on TFP region
+  # will use TFP region, with minor corrections, if it is specified, otherwise, use state
+  poverty_guideline_region <- poverty_guidelines_region_rules(tfp_region)
 
   net_income_limit <- federal_poverty_guidelines(year, poverty_guideline_region, household_size) / 12
 
@@ -116,7 +106,7 @@ snap_state_gross_income_limits <- function(year, state) {
   )
 
   # check and see if state has broad based categorical eligibility
-  # if it does not, return NA, if it does, return the value
+  # if it does not, return NA, if it is, return the value
   broad_based_states <- names(state_gross_income_limits[[year]])
 
   if (!state %in% broad_based_states) {
@@ -224,13 +214,22 @@ snap_determine_eligibility <- function(net_income, monthly_earned_income, monthl
 
 #' Maximum benefit values for SNAP
 #'
-#' Maximum SNAP benefits depend on year, region, and household size.
+#' Maximum SNAP benefits depend on year, region, and household size. They are based on Thrift Food Plan (TFP) amounts.
+#' This function returns maximum SNAP benefits for a given household size and TFP region.
 #'
 #' @param year Fiscal year to use to calculate threshold, as numeric. Fiscal year starts Oct. 1.
 #' @param region Region to calculate maximum benefits for. Must be one of :
 #'      'Contiguous US', 'Guam', 'Virgin Islands', 'Hawaii', 'Alaska Urban', 'Alaska Rural 1', 'Alaska Rural 2'.
 #'
-#' @keywords internal
+#' @return A single number representing the maximum amout a household size can receive in SNPA benefits.
+#'
+#' @examples
+#' snap_maximum_benefit_amounts(2022, 'Contiguous US')
+#'
+#' @section Source:
+#' Maximum SNAP benefits: \url{https://fns-prod.azureedge.net/sites/default/files/resource-files/2022-SNAP-COLA-%20Maximum-Allotments.pdf}
+#'
+#' @export
 snap_maximum_benefit_amounts <- function(year, region) {
 
   year <- as.character(year)
@@ -246,6 +245,7 @@ snap_maximum_benefit_amounts <- function(year, region) {
   region <- tolower(region)
 
   snap_maximums <- list(
+    # benefits based on TFP region
     # https://fns-prod.azureedge.net/sites/default/files/resource-files/2022-SNAP-COLA-%20Maximum-Allotments.pdf
     '2022' = list(
 
@@ -392,42 +392,96 @@ snap_income_deduction <- function(year, deduction) {
 #' Check parameters for SNAP function
 #'
 #' @keywords internal
-snap_check_parameters <- function(.data) {
-
-  col_names <- colnames(.data)
-
-  required_cols <- c('year', 'household_size')
-
-  # make sure all required columns are present
-  missing_cols <- setdiff(required_cols, col_names)
-  if (!length(missing_cols) == 0) {
-    stop(paste0("You are missing the following required columns from .data: ", paste0(missing_cols, collapse = ", ")))
-  }
+snap_check_parameters <- function(year, household_size, state_gross_income_limit, custom_gross_income_limit) {
 
   # year
-  if (!is.numeric(.data[[year]])) stop("`year` must be numeric.", call. = FALSE)
+  if (!is.numeric(year)) stop("`year` must be numeric.", call. = FALSE)
 
   first_year <- 2022
-  if (any(.data[[year]] < first_year)) stop(paste0(first_year, " is the first year available. You have a year earlier in your data."), call. = FALSE)
+  if (any(year < first_year)) stop(paste0(first_year, " is the first year available. You have a year earlier in your data."), call. = FALSE)
 
   # household_size
   if (!is.numeric(.data[[household_size]])) stop("The `household_size` column must be numeric.", call. = FALSE)
   if (any(.data[[household_size]] %% 1 != 0)) stop("All `household_size` values must be integers. They cannot be decimals.", call. = FALSE)
   if (any(is.na(.data[[household_size]]))) stop("You have NA `household_size` values. All rows must have a household size.", call. = FALSE)
 
-  # income limits
-  gross_income_cols <- c('state_gross_income_limits', 'custom_gross_income_limit')
   # cannot have state and custom gross income limits
-  if (length(intersect(col_names, gross_income_cols)) == 2) {
-    stop('Cannot have columns for both `state_gross_income_limits` and `custom_gross_income_limit`. You can only use one of these columns', call. = FALSE)
+  if (!is.null(state_gross_income_limits) & !is.null(custom_gross_income_limit)) {
+    stop('Cannot have values for both `state_gross_income_limits` and `custom_gross_income_limit`. One must be NULL', call. = FALSE)
   }
 
-  # msut have at least one gross income column
-  if (length(intersect(col_names, gross_income_cols)) == 0) {
-    stop('`.data` must contain columns for either `state_gross_income_limits` or `custom_gross_income_limit`.', call. = FALSE)
+  # must have at least one gross income column
+  if (is.null(state_gross_income_limits) & is.null(custom_gross_income_limit)) {
+    stop('`state_gross_income_limits` and `custom_gross_income_limit` cannot both be NULL. You must have values for one of them.', call. = FALSE)
   }
 
+  # the following parameters cannot have missing values
+  if (any(is.na(year))) stop("`year` has missing values. It cannot have missing values.", call. = FALSE)
+  if (any(is.na(household_size))) stop("`household_size` has missing values. It cannot have missing values.", call. = FALSE)
 
+  if (!is.null(state_gross_income_limits)){
+    if(any(is.na(state_gross_income_limits))) stop("`state_gross_income_limits` has missing values. It cannot have missing values.", call. = FALSE)
+  }
+
+  if (!is.null(custom_gross_income_limit)){
+    if(any(is.na(custom_gross_income_limit))) stop("`custom_gross_income_limit` has missing values. It cannot have missing values.", call. = FALSE)
+  }
+
+  if (!is.null(tfp_region)) {
+    if (any(is.na(tfp_region))) stop("`custom_gross_income_limit` has missing values. It cannot have missing values.", call. = FALSE)
+  }
 
   return(NULL)
+}
+
+#' TFP region
+#'
+#' If TFP is specified, use this value. If it is not specified, infer it from the state. If the state
+#' is not specified, default to Contiguous US.
+tfp_region_rules <- function(tfp_region, state) {
+
+  if (!is.null(tfp_region)) {
+
+    tfp <- tfp_region
+
+  } else if (!is.null(state)) {
+
+    tfp <- map_states_regions(state)
+
+  }  else {
+
+    tfp <- 'Contiguous US'
+
+    warning(paste0(
+      "Both the `state_gross_income_limit` and `tfp_region` are NULL. ",
+      "TFP region cannot be calculate when both are NULL. ",
+      "Therefore, the default of 'Contiguous US' is assumed for the TFP region. ",
+      "If you do not want this default, please include values for either `state_gross_income_limit` or `tfp_region`.")
+    )
+
+  }
+
+  return(tfp)
+
+}
+
+#' Poverty Guidelines Regions
+#'
+#' Business rules for calculating federal poverty guidelines region. If the TFP region is specified, use it
+#' since it largely mirrors federal poverty regions. If TFP region is not specified, use state.
+#' We don't need to recalculate for state here because TFP region already uses state if there is no
+#' TFP region. Therefore, for this function, we only need to calculate based on TFP region, knowing
+#' that we will be relying on state if there is no TFP region.
+#'
+#' @keywords internal
+poverty_guidelines_region_rules <- function(tfp_region) {
+
+  # Guam and Virgin Islands are contiguous US
+  # Alaska only has one region
+  dplyr::case_when(
+    stringr::str_detect(tfp_region, "^Conti|^Gua|^Virg") ~ 'Contiguous US',
+    stringr::str_detect(tfp_region, "^Alaska") ~ 'Alaska',
+    TRUE ~ stop('Could not calcualte poverty guidelines region. Please the `state_gross_income_limit` and / or `tfp_region` values are correct.')
+  )
+
 }
