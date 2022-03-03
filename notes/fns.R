@@ -1,39 +1,26 @@
 devtools::load_all()
 
-# parameters -------------------------------
-year <- 2022
+# to do
+#   snap_check_parameters - vectorize the checks
+#   NULL values are really NA
 
-gross_income_limit <- 2
-
-monthly_earned_income <- 1200
-
-monthly_unearned_income <- 0
-
-household_size <- 3
-
-# age threshold 60
-# can meet with other criteria as well (7 CFR 271.2)
-elderly_disabled_household_member <- FALSE
-
-# for excess medical deduction (7 CFR 273.9(d)(3))
-medical_expenses <- 0
-
-# (7 CFR 273.9(d)(4))
-dependent_care_deduction <- 200
-
-# only available in states that provide a deduction instead of income exclusion
-child_support_deduction <- 0
-
-# the homeless shelter deduction is a set amount and a state must elect to allow its use.
-# if it is used, you cannot deduct shelter expenses (7 CFR 273.9(d)(6)(i))
-use_homeless_shelter_deduction <- FALSE
-
-# can deduct a percentage of shelter expenses, with the percentage coming from percent of net income after deductions.
-# expenses cannot exceed area limit, unless elderly or disabeled person is in home
-shelter_expenses <- 600
-
-# region is for both poverty limits and maximum snap benefits
-tfp_region <- 'Contiguous US'
+benefit <- snap_benefits(
+  year = c(2022, 2022),
+  household_size = c(3, 1),
+  monthly_earned_income = c(2000, 10000),
+  shelter_expenses = 500,
+  monthly_unearned_income = 0,
+  state_gross_income_limit = 'NC',
+  custom_gross_income_limit = NULL,
+  custom_net_income_limit = NULL,
+  tfp_region = NULL,
+  federal_poverty_guidelines_region = "Contiguous US",
+  elderly_disabled_household_member = FALSE,
+  medical_expenses = 100,
+  dependent_care_deduction = 300,
+  child_support_deduction = 0,
+  use_homeless_shelter_deduction = FALSE
+)
 
 # function ----------------------------
 

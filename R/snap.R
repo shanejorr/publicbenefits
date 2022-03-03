@@ -4,12 +4,13 @@
 #'
 #' @export
 snap_benefits <- function(
-  .data, year, household_size, state_gross_income_limit = NULL, custom_gross_income_limit = NULL, custom_net_income_limit = NULL,
-  tfp_region = NULL, federal_poverty_guideleines_region = "Contiguous US"
+  year, household_size, monthly_earned_income, shelter_expenses, monthly_unearned_income = 0, state_gross_income_limit = NULL, custom_gross_income_limit = NULL, custom_net_income_limit = NULL,
+  tfp_region = NULL, federal_poverty_guidelines_region = "Contiguous US", elderly_disabled_household_member = FALSE,
+  medical_expenses = 0, dependent_care_deduction = 0, child_support_deduction = 0, use_homeless_shelter_deduction = FALSE
   ) {
 
   # check parameters
-  snap_check_parameters(.data, 'year', 'household_size')
+  snap_check_parameters(year, household_size, state_gross_income_limit, custom_gross_income_limit, tfp_region)
 
   # users can either define their own gross income limit or specify a state and use it
   # gross income limits depends on the state because some states elect categorical eligibility
@@ -19,7 +20,7 @@ snap_benefits <- function(
   } else if (!is.null(custom_gross_income_limit)) {
     gross_income_limit <- custom_gross_income_limit
   } else {
-    stop("`state_gross_income_limit` and `custom_gross_income_limit` cannot both be NULL.")
+    stop("`state_gross_income_limit` and `custom_gross_income_limit` cannot both be NULL.", call. = FALSE)
   }
 
   tfp_region <- tfp_region_rules(tfp_region, state_gross_income_limit)
@@ -40,7 +41,7 @@ snap_benefits <- function(
   net_income_before_shelter <- snap_net_income_prior_shelter(
     year = year, net_income_limit = net_income_limit, monthly_earned_income = monthly_earned_income,
     monthly_unearned_income = monthly_unearned_income, elderly_disabled_household_member = elderly_disabled_household_member,
-    excess_medical_deduction = medical_expenses, dependent_care_deduction = dependent_care_deduction,
+    medical_expenses = medical_expenses, dependent_care_deduction = dependent_care_deduction,
     child_support_deduction = child_support_deduction
   )
 
@@ -114,7 +115,7 @@ snap_state_gross_income_limits <- function(year, state) {
   } else if (state %in% broad_based_states) {
     state_limit <- state_gross_income_limits[[year]][[state]]
   } else {
-    stop("There was an unexpected error in locating the state. Sorry.")
+    stop("There was an unexpected error in locating the state. Sorry.", call. = FALSE)
   }
 
   return(state_limit)
@@ -128,7 +129,7 @@ snap_state_gross_income_limits <- function(year, state) {
 #' @keywords internal
 snap_net_income_prior_shelter <- function(
   year, net_income_limit, monthly_earned_income, monthly_unearned_income, elderly_disabled_household_member,
-  excess_medical_deduction, dependent_care_deduction, child_support_deduction
+  medical_expenses, dependent_care_deduction, child_support_deduction
   ) {
 
   year <- as.character(year)
@@ -221,7 +222,7 @@ snap_determine_eligibility <- function(net_income, monthly_earned_income, monthl
 #' @param region Region to calculate maximum benefits for. Must be one of :
 #'      'Contiguous US', 'Guam', 'Virgin Islands', 'Hawaii', 'Alaska Urban', 'Alaska Rural 1', 'Alaska Rural 2'.
 #'
-#' @return A single number representing the maximum amout a household size can receive in SNPA benefits.
+#' @return A single number representing the maximum amount a household size can receive in SNPA benefits.
 #'
 #' @examples
 #' snap_maximum_benefit_amounts(2022, 'Contiguous US')
@@ -239,7 +240,7 @@ snap_maximum_benefit_amounts <- function(year, region) {
   accepted_regions <- tolower(required_regions)
 
   if (!(region %in% c(required_regions, accepted_regions))) {
-    stop(paste0("`region` must be either ", paste0(required_regions, collapse = ", "), "."))
+    stop(paste0("`region` must be either ", paste0(required_regions, collapse = ", "), "."), call. = FALSE)
   }
 
   region <- tolower(region)
@@ -392,35 +393,36 @@ snap_income_deduction <- function(year, deduction) {
 #' Check parameters for SNAP function
 #'
 #' @keywords internal
-snap_check_parameters <- function(year, household_size, state_gross_income_limit, custom_gross_income_limit) {
+snap_check_parameters <- function(year, household_size, state_gross_income_limit, custom_gross_income_limit, tfp_region) {
 
   # year
-  if (!is.numeric(year)) stop("`year` must be numeric.", call. = FALSE)
+  if (any(!is.numeric(year))) stop("`year` must be numeric.", call. = FALSE)
 
   first_year <- 2022
   if (any(year < first_year)) stop(paste0(first_year, " is the first year available. You have a year earlier in your data."), call. = FALSE)
 
   # household_size
-  if (!is.numeric(.data[[household_size]])) stop("The `household_size` column must be numeric.", call. = FALSE)
-  if (any(.data[[household_size]] %% 1 != 0)) stop("All `household_size` values must be integers. They cannot be decimals.", call. = FALSE)
-  if (any(is.na(.data[[household_size]]))) stop("You have NA `household_size` values. All rows must have a household size.", call. = FALSE)
+  if (any(!is.numeric(household_size))) stop("`household_size` must be numeric.", call. = FALSE)
+  if (any(household_size %% 1 != 0)) stop("All `household_size` values must be integers. They cannot be decimals.", call. = FALSE)
+  if (any(is.na(household_size))) stop("You have NA `household_size` values. All rows must have a household size.", call. = FALSE)
 
   # cannot have state and custom gross income limits
-  if (!is.null(state_gross_income_limits) & !is.null(custom_gross_income_limit)) {
-    stop('Cannot have values for both `state_gross_income_limits` and `custom_gross_income_limit`. One must be NULL', call. = FALSE)
+
+  if (!is.null(state_gross_income_limit) & !is.null(custom_gross_income_limit)) {
+    stop('Cannot have values for both `state_gross_income_limit` and `custom_gross_income_limit`. One must be NULL', call. = FALSE)
   }
 
   # must have at least one gross income column
-  if (is.null(state_gross_income_limits) & is.null(custom_gross_income_limit)) {
-    stop('`state_gross_income_limits` and `custom_gross_income_limit` cannot both be NULL. You must have values for one of them.', call. = FALSE)
+  if (is.null(state_gross_income_limit) & is.null(custom_gross_income_limit)) {
+    stop('`state_gross_income_limit` and `custom_gross_income_limit` cannot both be NULL. You must have values for one of them.', call. = FALSE)
   }
 
   # the following parameters cannot have missing values
   if (any(is.na(year))) stop("`year` has missing values. It cannot have missing values.", call. = FALSE)
   if (any(is.na(household_size))) stop("`household_size` has missing values. It cannot have missing values.", call. = FALSE)
 
-  if (!is.null(state_gross_income_limits)){
-    if(any(is.na(state_gross_income_limits))) stop("`state_gross_income_limits` has missing values. It cannot have missing values.", call. = FALSE)
+  if (!is.null(state_gross_income_limit)){
+    if(any(is.na(state_gross_income_limit))) stop("`state_gross_income_limit` has missing values. It cannot have missing values.", call. = FALSE)
   }
 
   if (!is.null(custom_gross_income_limit)){
@@ -478,10 +480,15 @@ poverty_guidelines_region_rules <- function(tfp_region) {
 
   # Guam and Virgin Islands are contiguous US
   # Alaska only has one region
-  dplyr::case_when(
+  region <- dplyr::case_when(
     stringr::str_detect(tfp_region, "^Conti|^Gua|^Virg") ~ 'Contiguous US',
     stringr::str_detect(tfp_region, "^Alaska") ~ 'Alaska',
-    TRUE ~ stop('Could not calcualte poverty guidelines region. Please the `state_gross_income_limit` and / or `tfp_region` values are correct.')
+    TRUE ~ 'No Match'
   )
 
+  if (region == 'No Match') {
+    stop('Could not calculate poverty guidelines region. Please check that the `state_gross_income_limit` and / or `tfp_region` values are correct.', call. = FALSE)
+  }
+
+  return(region)
 }

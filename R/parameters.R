@@ -204,12 +204,18 @@ map_states_regions <- function(state) {
   # remove AK and HI from contiguous
   contiguous <- contiguous[!contiguous %in% c('HI', 'AK')]
 
-  dplyr::case_when(
+  region <- dplyr::case_when(
     state %in% contiguous ~ 'Contiguous US',
     state == 'AK' ~ 'Alaska',
     state == 'HI' ~ 'Hawaii',
     state == 'GU' ~ 'Guam',
     state == 'VI' ~ 'Virgin Island',
-    TRUE ~ stop("Could not find region. Please ensure your state values are correct. They must be two letter abbreviations or 'Federal'")
+    TRUE ~ 'No Match'
   )
+
+  if (region == 'No Match') {
+    stop("Could not find region. Please ensure your state values are correct. They must be two letter abbreviations or 'Federal'", call. = FALSE)
+  }
+
+  return(region)
 }
